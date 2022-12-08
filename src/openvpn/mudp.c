@@ -95,8 +95,11 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated)
         }
         if (!mi)
         {
+            struct tls_options *dummy_temp_opts = calloc(1, sizeof(struct tls_options));
+            dummy_temp_opts->plugins = m->top.plugins;
+            dummy_temp_opts->es = m->top.es;
             if (!m->top.c2.tls_auth_standalone
-                || tls_pre_decrypt_lite(m->top.c2.tls_auth_standalone, &m->top.c2.from, &m->top.c2.buf))
+                || tls_pre_decrypt_lite(m->top.c2.tls_auth_standalone, &m->top.c2.from, &m->top.c2.buf, dummy_temp_opts))
             {
                 if (frequency_limit_event_allowed(m->new_connection_limiter))
                 {

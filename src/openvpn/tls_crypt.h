@@ -210,18 +210,29 @@ bool tls_crypt_v2_extract_client_key(struct buffer *buf,
 void tls_crypt_v2_write_server_key_file(const char *filename);
 
 /**
+ * Generate a tls-crypt-v2 server key, and send it to a plugin handling tls-crypt-v2 key wrapping
+ *
+ * @param plugins   Plugin list containing available plugins.
+ * @param es        Environmental variable made available to plugins
+ *
+ * @returns true if a key was successfully generated and accepted by the plugin.
+ */
+void tls_crypt_v2_send_plugin_server_key(const char *filename, const struct plugin_list *plugins, struct env_set *es);
+
+/**
  * Generate a tls-crypt-v2 client key, and write to file.
  *
  * @param filename          Filename of the client key file to create.
  * @param b64_metadata      Base64 metadata to be included in the client key.
- * @param key_file          File path of the server key to use for wrapping the
+ * @param server_key_file   File path of the server key to use for wrapping the
  *                          client key or the key itself if key_inline is true.
- * @param key_inline        True if key_file contains an inline key, False
+ * @param server_key_inline True if key_file contains an inline key, False
  *                          otherwise.
+ * @param plugins           Plugin list containing available plugins.
+ * @param es                Environmental variable made available to plugins
  */
-void tls_crypt_v2_write_client_key_file(const char *filename,
-                                        const char *b64_metadata,
-                                        const char *key_file, bool key_inline);
+void tls_crypt_v2_write_client_key_file(const char *filename, const char *b64_metadata, const char *server_key_file,
+                                        bool server_key_inline, const struct plugin_list *plugins, struct env_set *es);
 
 /** @} */
 

@@ -54,7 +54,7 @@ void init_options_dev(struct options *options);
 
 bool print_openssl_info(const struct options *options);
 
-bool do_genkey(const struct options *options);
+bool do_genkey(struct context *c);
 
 bool do_persist_tuntap(const struct options *options, openvpn_net_ctx_t *ctx);
 

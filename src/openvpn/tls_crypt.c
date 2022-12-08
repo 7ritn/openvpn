@@ -399,9 +399,131 @@ tls_crypt_v2_wrap_client_key(struct buffer *wkc,
 }
 
 static bool
-tls_crypt_v2_unwrap_client_key(struct key2 *client_key, struct buffer *metadata,
-                               struct buffer wrapped_client_key,
-                               struct key_ctx *server_key)
+tls_crypt_v2_plugin_wrap_client_key(struct buffer *wkc, const struct key2 *src_key, const struct buffer *src_metadata,
+                                    const struct plugin_list *plugins, struct env_set *es, struct gc_arena *gc)
+{
+    int data_len = TLS_CRYPT_V2_CLIENT_KEY_LEN + BLEN(src_metadata);
+    char data[data_len];
+    memcpy(data, (uint8_t *) src_key->keys, TLS_CRYPT_V2_CLIENT_KEY_LEN);
+    memcpy(data + TLS_CRYPT_V2_CLIENT_KEY_LEN, BPTR(src_metadata), BLEN(src_metadata));
+
+    // Prepare unwrapped key for plugin
+    struct argv av = argv_new();
+    char *b64_key = NULL;
+    ASSERT(openvpn_base64_encode(data, data_len, &b64_key) >= 0);
+    ASSERT(argv_printf(&av, "%s %s", "wrap", b64_key) == true);
+
+    // Prepare response structure
+    struct plugin_return pr;
+    plugin_return_init(&pr);
+
+    // Call the plugin
+    int plug_ret = plugin_call(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING, &av, &pr, es);
+    ASSERT(plug_ret == OPENVPN_PLUGIN_FUNC_SUCCESS);
+
+    // Handle return
+    struct plugin_return wrapped_return;
+    plugin_return_get_column(&pr, &wrapped_return, "wrapping result");
+    ASSERT(plugin_return_defined(&wrapped_return));
+
+    for (int i = 0; i < wrapped_return.n; ++i)
+    {
+        if (wrapped_return.list[i] && wrapped_return.list[i]->value)
+        {
+            char *b64_return = wrapped_return.list[i]->value;
+            char wrapped_data[TLS_CRYPT_V2_MAX_WKC_LEN];
+            msg(M_WARN, "Received: %s", b64_return);
+            int wrapped_len = openvpn_base64_decode(b64_return, wrapped_data, (int) strlen(b64_return));
+            ASSERT(wrapped_len <= TLS_CRYPT_V2_MAX_WKC_LEN);
+            return buf_write(wkc, wrapped_data, wrapped_len);
+        }
+    }
+    return false;
+}
+
+static bool
+tls_crypt_v2_plugin_unwrap_client_key(struct key2 *client_key, struct buffer *metadata,
+                                      struct buffer wrapped_client_key,
+                                      const struct plugin_list *plugins, struct env_set *es)
+{
+    const char *error_prefix = __func__;
+    bool ret = false;
+    struct gc_arena gc = gc_new();
+
+    dmsg(D_TLS_DEBUG_MED, "%s: unwrapping client key (len=%d): %s", __func__,
+         BLEN(&wrapped_client_key), format_hex(BPTR(&wrapped_client_key),
+                                               BLEN(&wrapped_client_key),
+                                               0, &gc));
+
+    if (TLS_CRYPT_V2_MAX_WKC_LEN < BLEN(&wrapped_client_key))
+    {
+        CRYPT_ERROR("wrapped client key too big");
+    }
+
+    // Prepare unwrapped key for plugin
+    struct argv av = argv_new();
+    char *b64_key = NULL;
+    ASSERT(openvpn_base64_encode(BPTR(&wrapped_client_key), BLEN(&wrapped_client_key), &b64_key) >= 0);
+    ASSERT(argv_printf(&av, "%s %s", "unwrap", b64_key) == true);
+    free(b64_key);
+
+    // Prepare response structure
+    struct plugin_return pr;
+    plugin_return_init(&pr);
+
+    // Call the plugin
+    int plug_ret = plugin_call(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING, &av, &pr, es);
+    if(plug_ret != OPENVPN_PLUGIN_FUNC_SUCCESS)
+    {
+        CRYPT_ERROR("Unwrap client key plugin failed");
+    }
+
+    // Handle return
+    struct plugin_return unwrapped_return;
+    plugin_return_get_column(&pr, &unwrapped_return, "wrapping result");
+    if (!plugin_return_defined(&unwrapped_return))
+    {
+        CRYPT_ERROR("Plugin send no unwrapped data");
+    }
+
+    uint8_t unwrapped_data[TLS_CRYPT_V2_MAX_WKC_LEN];
+
+    for (int i = 0; i < unwrapped_return.n; ++i)
+    {
+        if (unwrapped_return.list[i] && unwrapped_return.list[i]->value)
+        {
+            char *b64_return = unwrapped_return.list[i]->value;
+            int b64_len = (int) strlen(b64_return);
+            int unwrapped_len = openvpn_base64_decode(b64_return, unwrapped_data, b64_len);
+            int expected_key_len = sizeof(client_key->keys);
+            if (unwrapped_len < expected_key_len)
+            {
+                CRYPT_ERROR("failed to read client key");
+            }
+            memcpy(&client_key->keys, unwrapped_data, expected_key_len);
+            if(!buf_write(metadata, unwrapped_data, unwrapped_len - expected_key_len))
+            {
+                CRYPT_ERROR("metadata too large for supplied buffer");
+            }
+            ret = true;
+            break;
+        }
+    }
+error_exit:
+    if (!ret)
+    {
+        secure_memzero(client_key, sizeof(*client_key));
+    }
+    secure_memzero(unwrapped_data, TLS_CRYPT_V2_MAX_WKC_LEN);
+    plugin_return_free(&pr);
+    gc_free(&gc);
+    return ret;
+}
+
+static bool
+tls_crypt_v2_local_unwrap_client_key(struct key2 *client_key, struct buffer *metadata,
+                                     struct buffer wrapped_client_key,
+                                     struct key_ctx *server_key)
 {
     const char *error_prefix = __func__;
     bool ret = false;
@@ -508,6 +630,20 @@ error_exit:
 }
 
 static bool
+tls_crypt_v2_unwrap_client_key(struct key2 *client_key, struct buffer *metadata,
+                               struct buffer wrapped_client_key, struct key_ctx *server_key,
+                               const struct plugin_list *plugins, struct env_set *es)
+{
+    if(plugin_defined(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING) & !server_key->cipher)
+    {
+        return tls_crypt_v2_plugin_unwrap_client_key(client_key, metadata, wrapped_client_key, plugins, es);
+
+    }
+
+    return tls_crypt_v2_local_unwrap_client_key(client_key, metadata, wrapped_client_key, server_key);
+}
+
+static bool
 tls_crypt_v2_verify_metadata(const struct tls_wrap_ctx *ctx,
                              const struct tls_options *opt)
 {
@@ -571,7 +707,7 @@ tls_crypt_v2_extract_client_key(struct buffer *buf,
                                 struct tls_wrap_ctx *ctx,
                                 const struct tls_options *opt)
 {
-    if (!ctx->tls_crypt_v2_server_key.cipher)
+    if (!ctx->tls_crypt_v2_server_key.cipher && !plugin_defined(opt->plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING))
     {
         msg(D_TLS_ERRORS,
             "Client wants tls-crypt-v2, but no server key present.");
@@ -603,7 +739,8 @@ tls_crypt_v2_extract_client_key(struct buffer *buf,
     if (!tls_crypt_v2_unwrap_client_key(&client_key,
                                         &ctx->tls_crypt_v2_metadata,
                                         wrapped_client_key,
-                                        &ctx->tls_crypt_v2_server_key))
+                                        &ctx->tls_crypt_v2_server_key,
+                                        opt->plugins, opt->es))
     {
         msg(D_TLS_ERRORS, "Can not unwrap tls-crypt-v2 client key");
         secure_memzero(&client_key, sizeof(client_key));
@@ -636,10 +773,53 @@ tls_crypt_v2_write_server_key_file(const char *filename)
 }
 
 void
-tls_crypt_v2_write_client_key_file(const char *filename,
-                                   const char *b64_metadata,
-                                   const char *server_key_file,
-                                   bool server_key_inline)
+tls_crypt_v2_send_plugin_server_key(const char *filename, const struct plugin_list *plugins, struct env_set *es)
+{
+    struct argv av = argv_new();
+    struct key server_key = { 0 };
+    struct key_type server_kt = tls_crypt_kt();
+    ASSERT(server_kt.cipher && server_kt.digest);
+    ASSERT(rand_bytes((void *)&server_key, sizeof(server_key)));
+    char *b64_aes_key = NULL;
+    char *b64_hmac_key = NULL;
+    ASSERT(openvpn_base64_encode(server_key.cipher, server_kt.cipher_length, &b64_aes_key) >= server_kt.cipher_length);
+    ASSERT(openvpn_base64_encode(server_key.hmac, server_kt.hmac_length, &b64_hmac_key) >= server_kt.hmac_length);
+    ASSERT(argv_printf(&av, "%s %s %s", "import", b64_aes_key, b64_hmac_key));
+
+    ASSERT(plugin_call(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING, &av, NULL, es) == OPENVPN_PLUGIN_FUNC_SUCCESS);
+
+    if (filename && strcmp(filename, "") != 0)
+    {
+        struct gc_arena gc = gc_new();
+        struct buffer server_key_buf = clear_buf();
+        struct buffer server_key_pem = clear_buf();
+
+        buf_set_read(&server_key_buf, (void *)&server_key, sizeof(server_key));
+        ASSERT(crypto_pem_encode(tls_crypt_v2_srv_pem_name, &server_key_pem,
+                               &server_key_buf, &gc));
+
+        ASSERT(buffer_write_file(filename, &server_key_pem));
+    }
+    secure_memzero(b64_aes_key, strlen(b64_aes_key));
+    free(b64_aes_key);
+    secure_memzero(b64_hmac_key, strlen(b64_hmac_key));
+    free(b64_hmac_key);
+
+    // Securely erase argv
+    if (av.argc)
+    {
+        for (size_t i = 0; i < av.argc; ++i)
+        {
+            string_clear(av.argv[i]);
+        }
+    }
+    argv_free(&av);
+}
+
+void
+tls_crypt_v2_write_client_key_file(const char *filename, const char *b64_metadata,
+                                   const char *server_key_file, bool server_key_inline,
+                                   const struct plugin_list *plugins, struct env_set *es)
 {
     struct gc_arena gc = gc_new();
     struct key_ctx server_key = { 0 };
@@ -680,14 +860,17 @@ tls_crypt_v2_write_client_key_file(const char *filename,
         ASSERT(buf_write(&metadata, &TLS_CRYPT_METADATA_TYPE_TIMESTAMP, 1));
         ASSERT(buf_write(&metadata, &timestamp, sizeof(timestamp)));
     }
-
-    tls_crypt_v2_init_server_key(&server_key, true, server_key_file,
-                                 server_key_inline);
-    if (!tls_crypt_v2_wrap_client_key(&dst, &client_key, &metadata, &server_key,
-                                      &gc))
-    {
-        msg(M_FATAL, "ERROR: could not wrap generated client key");
-        goto cleanup;
+    if(plugin_defined(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING) && !server_key_file) {
+        tls_crypt_v2_plugin_wrap_client_key(&dst, &client_key, &metadata, plugins, es, NULL);
+    } else {
+        tls_crypt_v2_init_server_key(&server_key, true, server_key_file,
+                                     server_key_inline);
+        if (!tls_crypt_v2_wrap_client_key(&dst, &client_key, &metadata, &server_key,
+                                          &gc))
+        {
+            msg(M_FATAL, "ERROR: could not wrap generated client key");
+            goto cleanup;
+        }
     }
 
     /* PEM-encode Kc || WKc */
@@ -722,15 +905,18 @@ tls_crypt_v2_write_client_key_file(const char *filename,
     free_key_ctx_bi(&test_client_key);
 
     /* Sanity check: unwrap and load client key (as "server") */
+    msg(D_GENKEY, "Testing server-side key loading...");
     struct buffer test_metadata = alloc_buf_gc(TLS_CRYPT_V2_MAX_METADATA_LEN,
                                                &gc);
     struct key2 test_client_key2 = { 0 };
-    free_key_ctx(&server_key);
-    tls_crypt_v2_init_server_key(&server_key, false, server_key_file,
-                                 server_key_inline);
-    msg(D_GENKEY, "Testing server-side key loading...");
+    if(!plugin_defined(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING) && !server_key_file)
+    {
+        free_key_ctx(&server_key);
+        tls_crypt_v2_init_server_key(&server_key, false, server_key_file,
+                                    server_key_inline);
+    }
     ASSERT(tls_crypt_v2_unwrap_client_key(&test_client_key2, &test_metadata,
-                                          test_wrapped_client_key, &server_key));
+                                          test_wrapped_client_key, &server_key, plugins, es));
     secure_memzero(&test_client_key2, sizeof(test_client_key2));
     free_buf(&test_wrapped_client_key);
 

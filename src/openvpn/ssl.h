@@ -348,7 +348,8 @@ bool tls_pre_decrypt(struct tls_multi *multi,
  */
 bool tls_pre_decrypt_lite(const struct tls_auth_standalone *tas,
                           const struct link_socket_actual *from,
-                          const struct buffer *buf);
+                          const struct buffer *buf,
+                          struct tls_options *opts);
 
 
 /**

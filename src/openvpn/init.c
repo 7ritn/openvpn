@@ -1098,8 +1098,9 @@ print_openssl_info(const struct options *options)
  * Static pre-shared key generation mode?
  */
 bool
-do_genkey(const struct options *options)
+do_genkey(struct context *c)
 {
+    const struct options *options = &c->options;
     /* should we disable paging? */
     if (options->mlock && (options->genkey))
     {
@@ -1150,12 +1151,19 @@ do_genkey(const struct options *options)
     }
     else if (options->genkey && options->genkey_type == GENKEY_TLS_CRYPTV2_SERVER)
     {
+        if(plugin_defined(c->plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING))
+        {
+            msg(M_INFO, "Generating server key for plugin");
+            tls_crypt_v2_send_plugin_server_key(options->genkey_filename, c->plugins, c->es);
+            return true;
+
+        }
         tls_crypt_v2_write_server_key_file(options->genkey_filename);
         return true;
     }
     else if (options->genkey && options->genkey_type == GENKEY_TLS_CRYPTV2_CLIENT)
     {
-        if (!options->tls_crypt_v2_file)
+        if (!options->tls_crypt_v2_file && !plugin_defined(c->plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING))
         {
             msg(M_USAGE,
                 "--genkey tls-crypt-v2-client requires a server key to be set via --tls-crypt-v2 to create a client key");
@@ -1163,7 +1171,7 @@ do_genkey(const struct options *options)
 
         tls_crypt_v2_write_client_key_file(options->genkey_filename,
                                            options->genkey_extra_data, options->tls_crypt_v2_file,
-                                           options->tls_crypt_v2_file_inline);
+                                           options->tls_crypt_v2_file_inline, c->plugins, c->es);
         return true;
     }
     else if (options->genkey && options->genkey_type == GENKEY_AUTH_TOKEN)

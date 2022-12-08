@@ -449,6 +449,7 @@ plugin_open_item(struct plugin *p,
         *retlist = NULL;
     }
 
+
     if (!p->plugin_handle && init_point == p->requested_initialization_point)
     {
         struct gc_arena gc = gc_new();

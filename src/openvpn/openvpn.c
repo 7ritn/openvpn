@@ -234,7 +234,7 @@ openvpn_main(int argc, char *argv[])
             }
 
             /* --genkey mode? */
-            if (do_genkey(&c.options))
+            if (do_genkey(&c))
             {
                 break;
             }
