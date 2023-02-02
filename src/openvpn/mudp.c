@@ -76,7 +76,10 @@ do_pre_decrypt_check(struct multi_context *m,
 
     struct tls_auth_standalone *tas = m->top.c2.tls_auth_standalone;
 
-    verdict = tls_pre_decrypt_lite(tas, state, &m->top.c2.from, &m->top.c2.buf);
+    struct tls_options dummy_temp_opts = { 0 };
+    dummy_temp_opts.plugins = m->top.plugins;
+    dummy_temp_opts.es = m->top.es;
+    verdict = tls_pre_decrypt_lite(tas, state, &m->top.c2.from, &m->top.c2.buf, &dummy_temp_opts);
 
     hmac_ctx_t *hmac = m->top.c2.session_id_hmac;
     struct openvpn_sockaddr *from = &m->top.c2.from.dest;

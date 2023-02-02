@@ -754,8 +754,8 @@ tls_crypt_v2_send_plugin_server_key(const char *filename, const struct plugin_li
     ASSERT(rand_bytes((void *)&server_key, sizeof(server_key)));
     char *b64_aes_key = NULL;
     char *b64_hmac_key = NULL;
-    ASSERT(openvpn_base64_encode(server_key.cipher, server_kt.cipher_length, &b64_aes_key) >= server_kt.cipher_length);
-    ASSERT(openvpn_base64_encode(server_key.hmac, server_kt.hmac_length, &b64_hmac_key) >= server_kt.hmac_length);
+    ASSERT(openvpn_base64_encode(server_key.cipher, sizeof(server_key.cipher), &b64_aes_key) >= sizeof(server_key.cipher));
+    ASSERT(openvpn_base64_encode(server_key.hmac, sizeof(server_key.hmac), &b64_hmac_key) >= sizeof(server_key.hmac));
     ASSERT(argv_printf(&av, "%s %s %s", "import", b64_aes_key, b64_hmac_key));
 
     ASSERT(plugin_call(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING, &av, NULL, es) == OPENVPN_PLUGIN_FUNC_SUCCESS);
