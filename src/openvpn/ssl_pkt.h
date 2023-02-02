@@ -150,7 +150,8 @@ enum first_packet_verdict
 tls_pre_decrypt_lite(const struct tls_auth_standalone *tas,
                      struct tls_pre_decrypt_state *state,
                      const struct link_socket_actual *from,
-                     const struct buffer *buf);
+                     const struct buffer *buf,
+                     struct tls_options *opts);
 
 /* Creates an SHA256 HMAC context with a random key that is used for the
  * session id.

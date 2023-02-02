@@ -309,7 +309,8 @@ enum first_packet_verdict
 tls_pre_decrypt_lite(const struct tls_auth_standalone *tas,
                      struct tls_pre_decrypt_state *state,
                      const struct link_socket_actual *from,
-                     const struct buffer *buf)
+                     const struct buffer *buf,
+                     struct tls_options *opts)
 {
     struct gc_arena gc = gc_new();
     /* A packet needs to have at least an opcode and session id */
@@ -375,7 +376,7 @@ tls_pre_decrypt_lite(const struct tls_auth_standalone *tas,
      * into newbuf or just setting newbuf to point to the start of control
      * message */
     bool status = read_control_auth(&state->newbuf, &state->tls_wrap_tmp,
-                                    from, NULL);
+                                    from, opts);
 
     if (!status)
     {
