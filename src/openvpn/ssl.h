@@ -43,7 +43,6 @@
 #include "ssl_common.h"
 #include "ssl_backend.h"
 #include "ssl_pkt.h"
-#include "tls_crypt.h"
 
 /* Used in the TLS PRF function */
 #define KEY_EXPANSION_ID "OpenVPN"
@@ -103,9 +102,6 @@
 
 /** Support for AUTH_FAIL,TEMP messages */
 #define IV_PROTO_AUTH_FAIL_TEMP  (1<<8)
-
-/** Support to dynamic tls-crypt (renegotiation with TLS-EKM derived tls-crypt key) */
-#define IV_PROTO_DYN_TLS_CRYPT   (1<<9)
 
 /* Default field in X509 to be username */
 #define X509_USERNAME_FIELD_DEFAULT "CN"
@@ -179,12 +175,6 @@ void tls_multi_init_finalize(struct tls_multi *multi, int tls_mtu);
  */
 struct tls_auth_standalone *tls_auth_standalone_init(struct tls_options *tls_options,
                                                      struct gc_arena *gc);
-
-/**
- * Frees a standalone tls-auth verification object.
- * @param tas   the object to free. May be NULL.
- */
-void tls_auth_standalone_free(struct tls_auth_standalone *tas);
 
 /*
  * Setups the control channel frame size parameters from the data channel
@@ -486,7 +476,6 @@ tls_wrap_free(struct tls_wrap_ctx *tls_wrap)
 
     free_buf(&tls_wrap->tls_crypt_v2_metadata);
     free_buf(&tls_wrap->work);
-    secure_memzero(&tls_wrap->original_wrap_keydata, sizeof(tls_wrap->original_wrap_keydata));
 }
 
 static inline bool

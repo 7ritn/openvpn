@@ -223,12 +223,6 @@ management_callback_proxy_cmd(void *arg, const char **p)
     }
     else if (p[2] && p[3])
     {
-        if (dco_enabled(&c->options))
-        {
-            msg(M_INFO, "Proxy set via management, disabling Data Channel Offload.");
-            c->options.tuntap_options.disable_dco = true;
-        }
-
         if (streq(p[1], "HTTP"))
         {
             struct http_proxy_options *ho;
@@ -1858,8 +1852,7 @@ do_open_tun(struct context *c, int *error_flags)
 #ifdef _WIN32
         /* store (hide) interactive service handle in tuntap_options */
         c->c1.tuntap->options.msg_channel = c->options.msg_channel;
-        msg(D_ROUTE, "interactive service msg_channel=%" PRIuPTR,
-            (intptr_t) c->options.msg_channel);
+        msg(D_ROUTE, "interactive service msg_channel=%" PRIu64, (unsigned long long) c->options.msg_channel);
 #endif
 
         /* allocate route list structure */
@@ -2224,145 +2217,6 @@ p2p_set_dco_keepalive(struct context *c)
     }
     return true;
 }
-
-/**
- * Helper function for tls_print_deferred_options_results
- * Adds the ", " delimitor if there already some data in the
- * buffer.
- */
-static void
-add_delim_if_non_empty(struct buffer *buf, const char *header)
-{
-    if (buf_len(buf) > strlen(header))
-    {
-        buf_printf(buf, ", ");
-    }
-}
-
-
-/**
- * Prints the results of options imported for the data channel
- * @param o
- */
-static void
-tls_print_deferred_options_results(struct context *c)
-{
-    struct options *o = &c->options;
-
-    struct buffer out;
-    uint8_t line[1024] = { 0 };
-    buf_set_write(&out, line, sizeof(line));
-
-
-    if (cipher_kt_mode_aead(o->ciphername))
-    {
-        buf_printf(&out, "Data Channel: cipher '%s'",
-                   cipher_kt_name(o->ciphername));
-    }
-    else
-    {
-        buf_printf(&out, "Data Channel: cipher '%s', auth '%s'",
-                   cipher_kt_name(o->ciphername), md_kt_name(o->authname));
-    }
-
-    if (o->use_peer_id)
-    {
-        buf_printf(&out, ", peer-id: %d", o->peer_id);
-    }
-
-#ifdef USE_COMP
-    if (c->c2.comp_context)
-    {
-        buf_printf(&out, ", compression: '%s'", c->c2.comp_context->alg.name);
-    }
-#endif
-
-    msg(D_HANDSHAKE, "%s", BSTR(&out));
-
-    buf_clear(&out);
-
-    const char *header = "Timers: ";
-
-    buf_printf(&out, "%s", header);
-
-    if (o->ping_send_timeout)
-    {
-        buf_printf(&out, "ping %d", o->ping_send_timeout);
-    }
-
-    if (o->ping_rec_timeout_action != PING_UNDEF)
-    {
-        /* yes unidirectional ping is possible .... */
-        add_delim_if_non_empty(&out, header);
-
-        if (o->ping_rec_timeout_action == PING_EXIT)
-        {
-            buf_printf(&out, "ping-exit %d", o->ping_rec_timeout);
-        }
-        else
-        {
-            buf_printf(&out, "ping-restart %d", o->ping_rec_timeout);
-        }
-    }
-
-    if (o->inactivity_timeout)
-    {
-        add_delim_if_non_empty(&out, header);
-
-        buf_printf(&out, "inactive %d", o->inactivity_timeout);
-        if (o->inactivity_minimum_bytes)
-        {
-            buf_printf(&out, " %" PRIu64, o->inactivity_minimum_bytes);
-        }
-    }
-
-    if (o->session_timeout)
-    {
-        add_delim_if_non_empty(&out, header);
-        buf_printf(&out, "session-timeout %d", o->session_timeout);
-    }
-
-    if (buf_len(&out) > strlen(header))
-    {
-        msg(D_HANDSHAKE, "%s", BSTR(&out));
-    }
-
-    buf_clear(&out);
-    header = "Protocol options: ";
-    buf_printf(&out, "%s", header);
-
-    if (c->options.ce.explicit_exit_notification)
-    {
-        buf_printf(&out, "explicit-exit-notify %d",
-                   c->options.ce.explicit_exit_notification);
-    }
-    if (c->options.imported_protocol_flags)
-    {
-        add_delim_if_non_empty(&out, header);
-
-        buf_printf(&out, "protocol-flags");
-
-        if (o->imported_protocol_flags & CO_USE_CC_EXIT_NOTIFY)
-        {
-            buf_printf(&out, " cc-exit");
-        }
-        if (o->imported_protocol_flags & CO_USE_TLS_KEY_MATERIAL_EXPORT)
-        {
-            buf_printf(&out, " tls-ekm");
-        }
-        if (o->imported_protocol_flags & CO_USE_DYNAMIC_TLS_CRYPT)
-        {
-            buf_printf(&out, " dyn-tls-crypt");
-        }
-    }
-
-    if (buf_len(&out) > strlen(header))
-    {
-        msg(D_HANDSHAKE, "%s", BSTR(&out));
-    }
-}
-
-
 /**
  * This function is expected to be invoked after open_tun() was performed.
  *
@@ -2524,8 +2378,6 @@ do_up(struct context *c, bool pulled_options, unsigned int option_types_found)
             initialization_sequence_completed(c, error_flags); /* client/p2p restart with --persist-tun */
         }
 
-        tls_print_deferred_options_results(c);
-
         c->c2.do_up_ran = true;
         if (c->c2.tls_multi)
         {
@@ -2626,7 +2478,7 @@ do_deferred_options(struct context *c, const unsigned int found)
     if (found & OPT_P_TIMER)
     {
         do_init_timers(c, true);
-        msg(D_PUSH_DEBUG, "OPTIONS IMPORT: timers and/or timeouts modified");
+        msg(D_PUSH, "OPTIONS IMPORT: timers and/or timeouts modified");
     }
 
     if (found & OPT_P_EXPLICIT_NOTIFY)
@@ -2638,14 +2490,14 @@ do_deferred_options(struct context *c, const unsigned int found)
         }
         else
         {
-            msg(D_PUSH_DEBUG, "OPTIONS IMPORT: explicit notify parm(s) modified");
+            msg(D_PUSH, "OPTIONS IMPORT: explicit notify parm(s) modified");
         }
     }
 
 #ifdef USE_COMP
     if (found & OPT_P_COMP)
     {
-        msg(D_PUSH_DEBUG, "OPTIONS IMPORT: compression parms modified");
+        msg(D_PUSH, "OPTIONS IMPORT: compression parms modified");
         comp_uninit(c->c2.comp_context);
         c->c2.comp_context = comp_init(&c->options.comp);
     }
@@ -2696,7 +2548,7 @@ do_deferred_options(struct context *c, const unsigned int found)
 
     if (found & OPT_P_PEER_ID)
     {
-        msg(D_PUSH_DEBUG, "OPTIONS IMPORT: peer-id set");
+        msg(D_PUSH, "OPTIONS IMPORT: peer-id set");
         c->c2.tls_multi->use_peer_id = true;
         c->c2.tls_multi->peer_id = c->options.peer_id;
     }
@@ -3044,7 +2896,7 @@ do_init_crypto_static(struct context *c, const unsigned int flags)
                                 options->shared_secret_file,
                                 options->shared_secret_file_inline,
                                 options->key_direction, "Static Key Encryption",
-                                "secret", NULL);
+                                "secret");
     }
     else
     {
@@ -3084,15 +2936,13 @@ do_init_tls_wrap_key(struct context *c)
                                 options->ce.tls_auth_file,
                                 options->ce.tls_auth_file_inline,
                                 options->ce.key_direction,
-                                "Control Channel Authentication", "tls-auth",
-                                &c->c1.ks.original_wrap_keydata);
+                                "Control Channel Authentication", "tls-auth");
     }
 
     /* TLS handshake encryption+authentication (--tls-crypt) */
     if (options->ce.tls_crypt_file)
     {
         tls_crypt_init_key(&c->c1.ks.tls_wrap_key,
-                           &c->c1.ks.original_wrap_keydata,
                            options->ce.tls_crypt_file,
                            options->ce.tls_crypt_file_inline,
                            options->tls_server);
@@ -3110,7 +2960,6 @@ do_init_tls_wrap_key(struct context *c)
         else
         {
             tls_crypt_v2_init_client_key(&c->c1.ks.tls_wrap_key,
-                                         &c->c1.ks.original_wrap_keydata,
                                          &c->c1.ks.tls_crypt_v2_wkc,
                                          options->ce.tls_crypt_v2_file,
                                          options->ce.tls_crypt_v2_file_inline);
@@ -3414,6 +3263,9 @@ do_init_crypto_tls(struct context *c, const unsigned int flags)
     if (options->ce.tls_auth_file)
     {
         to.tls_wrap.mode = TLS_WRAP_AUTH;
+        to.tls_wrap.opt.key_ctx_bi = c->c1.ks.tls_wrap_key;
+        to.tls_wrap.opt.pid_persist = &c->c1.pid_persist;
+        to.tls_wrap.opt.flags |= CO_PACKET_ID_LONG_FORM;
     }
 
     /* TLS handshake encryption (--tls-crypt) */
@@ -3421,21 +3273,19 @@ do_init_crypto_tls(struct context *c, const unsigned int flags)
         || (options->ce.tls_crypt_v2_file && options->tls_client))
     {
         to.tls_wrap.mode = TLS_WRAP_CRYPT;
-    }
-
-    if (to.tls_wrap.mode == TLS_WRAP_AUTH || to.tls_wrap.mode == TLS_WRAP_CRYPT)
-    {
         to.tls_wrap.opt.key_ctx_bi = c->c1.ks.tls_wrap_key;
         to.tls_wrap.opt.pid_persist = &c->c1.pid_persist;
         to.tls_wrap.opt.flags |= CO_PACKET_ID_LONG_FORM;
-        to.tls_wrap.original_wrap_keydata = c->c1.ks.original_wrap_keydata;
+
+        if (options->ce.tls_crypt_v2_file)
+        {
+            to.tls_wrap.tls_crypt_v2_wkc = &c->c1.ks.tls_crypt_v2_wkc;
+        }
     }
 
     if (options->ce.tls_crypt_v2_file)
     {
         to.tls_crypt_v2 = true;
-        to.tls_wrap.tls_crypt_v2_wkc = &c->c1.ks.tls_crypt_v2_wkc;
-
         if (options->tls_server)
         {
             to.tls_wrap.tls_crypt_v2_server_key = c->c1.ks.tls_crypt_v2_server_key;
@@ -3491,7 +3341,6 @@ do_init_frame_tls(struct context *c)
         frame_print(&c->c2.tls_auth_standalone->frame, D_MTU_INFO,
                     "TLS-Auth MTU parms");
         c->c2.tls_auth_standalone->tls_wrap.work = alloc_buf_gc(BUF_SIZE(&c->c2.frame), &c->c2.gc);
-        c->c2.tls_auth_standalone->workbuf = alloc_buf_gc(BUF_SIZE(&c->c2.frame), &c->c2.gc);
     }
 }
 
@@ -3890,8 +3739,6 @@ do_close_tls(struct context *c)
         md_ctx_cleanup(c->c2.pulled_options_state);
         md_ctx_free(c->c2.pulled_options_state);
     }
-
-    tls_auth_standalone_free(c->c2.tls_auth_standalone);
 }
 
 /*
@@ -3925,7 +3772,8 @@ do_close_link_socket(struct context *c)
     /* in dco-win case, link socket is a tun handle which is
      * closed in do_close_tun(). Set it to UNDEFINED so
      * we won't use WinSock API to close it. */
-    if (tuntap_is_dco_win(c->c1.tuntap) && c->c2.link_socket)
+    if (tuntap_is_dco_win(c->c1.tuntap) && c->c2.link_socket
+        && c->c2.link_socket->dco_installed)
     {
         c->c2.link_socket->sd = SOCKET_UNDEFINED;
     }

@@ -193,7 +193,7 @@ write_control_auth(struct tls_session *session,
 
     msg(D_TLS_DEBUG, "%s(): %s", __func__, packet_opcode_name(opcode));
 
-    tls_wrap_control(tls_session_get_tls_wrap(session, ks->key_id), header, buf, &session->session_id);
+    tls_wrap_control(&session->tls_wrap, header, buf, &session->session_id);
 
     *to_link_addr = &ks->remote_addr;
 }
@@ -435,10 +435,7 @@ tls_reset_standalone(struct tls_wrap_ctx *ctx,
                      uint8_t header,
                      bool request_resend_wkc)
 {
-    /* Copy buffer here to point at the same data but allow tls_wrap_control
-     * to potentially change buf to point to another buffer without
-     * modifying the buffer in tas */
-    struct buffer buf = tas->workbuf;
+    struct buffer buf = alloc_buf(tas->frame.buf.payload_size);
     ASSERT(buf_init(&buf, tas->frame.buf.headroom));
 
     /* Reliable ACK structure */
@@ -465,8 +462,7 @@ tls_reset_standalone(struct tls_wrap_ctx *ctx,
         buf_write_u16(&buf, EARLY_NEG_FLAG_RESEND_WKC);
     }
 
-    /* Add tls-auth/tls-crypt wrapping, this might replace buf with
-     * ctx->work */
+    /* Add tls-auth/tls-crypt wrapping, this might replace buf */
     tls_wrap_control(ctx, header, &buf, own_sid);
 
     return buf;

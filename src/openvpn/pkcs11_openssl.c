@@ -168,7 +168,6 @@ xkey_pkcs11h_sign(void *handle, unsigned char *sig,
 
     unsigned char buf[EVP_MAX_MD_SIZE];
     size_t buflen;
-    size_t siglen_max = *siglen;
 
     unsigned char enc[EVP_MAX_MD_SIZE + 32]; /* 32 bytes enough for DigestInfo header */
     size_t enc_len = sizeof(enc);
@@ -235,26 +234,8 @@ xkey_pkcs11h_sign(void *handle, unsigned char *sig,
         ASSERT(0);  /* coding error -- we couldnt have created any such key */
     }
 
-    if (CKR_OK != pkcs11h_certificate_signAny_ex(cert, &mech,
-                                                 tbs, tbslen, sig, siglen))
-    {
-        return 0;
-    }
-    if (strcmp(sigalg.keytype, "EC"))
-    {
-        return 1;
-    }
-
-    /* For EC keys, pkcs11 returns signature as r|s: convert to der encoded */
-    int derlen = ecdsa_bin2der(sig, (int) *siglen, siglen_max);
-
-    if (derlen <= 0)
-    {
-        return 0;
-    }
-    *siglen = derlen;
-
-    return 1;
+    return CKR_OK == pkcs11h_certificate_signAny_ex(cert, &mech,
+                                                    tbs, tbslen, sig, siglen);
 }
 
 /* wrapper for handle free */

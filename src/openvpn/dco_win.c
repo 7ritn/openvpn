@@ -110,7 +110,7 @@ dco_connect_wait(HANDLE handle, OVERLAPPED *ov, int timeout, struct signal_info 
 {
     volatile int *signal_received = &sig_info->signal_received;
     /* GetOverlappedResultEx is available starting from Windows 8 */
-    typedef BOOL (WINAPI *get_overlapped_result_ex_t)(HANDLE, LPOVERLAPPED, LPDWORD, DWORD, BOOL);
+    typedef BOOL (*get_overlapped_result_ex_t) (HANDLE, LPOVERLAPPED, LPDWORD, DWORD, BOOL);
     get_overlapped_result_ex_t get_overlapped_result_ex =
         (get_overlapped_result_ex_t)GetProcAddress(GetModuleHandle("Kernel32.dll"),
                                                    "GetOverlappedResultEx");
@@ -385,14 +385,16 @@ dco_available(int msglevel)
     return false;
 }
 
-const char *
-dco_version_string(struct gc_arena *gc)
+int
+dco_do_read(dco_context_t *dco)
 {
-    return "v0";
+    /* no-op on windows */
+    ASSERT(0);
+    return 0;
 }
 
 int
-dco_do_read(dco_context_t *dco)
+dco_do_write(dco_context_t *dco, int peer_id, struct buffer *buf)
 {
     /* no-op on windows */
     ASSERT(0);

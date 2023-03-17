@@ -31,8 +31,6 @@
 #include <sys/param.h>
 #include <sys/linker.h>
 #include <sys/nv.h>
-#include <sys/utsname.h>
-
 #include <netinet/in.h>
 
 #include "dco_freebsd.h"
@@ -144,6 +142,7 @@ open_fd(dco_context_t *dco)
     {
         dco->open = true;
     }
+    dco->dco_packet_in = alloc_buf(PAGE_SIZE);
 
     return dco->fd;
 }
@@ -232,6 +231,7 @@ create_interface(struct tuntap *tt, const char *dev)
     }
 
     snprintf(tt->dco.ifname, IFNAMSIZ, "%s", ifr.ifr_data);
+    tt->actual_name = string_alloc(tt->dco.ifname, NULL);
 
     /* see "Interface Flags" in ifnet(9) */
     int i = IFF_POINTOPOINT | IFF_MULTICAST;
@@ -560,6 +560,15 @@ dco_do_read(dco_context_t *dco)
     return 0;
 }
 
+int
+dco_do_write(dco_context_t *dco, int peer_id, struct buffer *buf)
+{
+    /* Control packets are passed through the socket, so this should never get
+     * called. See should_use_dco_socket(). */
+    ASSERT(0);
+    return -EINVAL;
+}
+
 bool
 dco_available(int msglevel)
 {
@@ -613,20 +622,6 @@ out:
     close(fd);
 
     return available;
-}
-
-const char *
-dco_version_string(struct gc_arena *gc)
-{
-    struct utsname *uts;
-    ALLOC_OBJ_GC(uts, struct utsname, gc);
-
-    if (uname(uts) != 0)
-    {
-        return "N/A";
-    }
-
-    return uts->version;
 }
 
 void
