@@ -355,7 +355,9 @@ ovpn_dco_init_netlink(dco_context_t *dco)
             nl_geterror(ret));
     }
 
+    /* set close on exec and non-block on the netlink socket */
     set_cloexec(nl_socket_get_fd(dco->nl_sock));
+    set_nonblock(nl_socket_get_fd(dco->nl_sock));
 
     dco->nl_cb = nl_cb_alloc(NL_CB_DEFAULT);
     if (!dco->nl_cb)
@@ -434,24 +436,6 @@ ovpn_dco_register(dco_context_t *dco)
     {
         msg(M_ERR, "%s: failed to join groups: %d", __func__, ret);
     }
-
-    /* Register for non-data packets that ovpn-dco may receive. They will be
-     * forwarded to userspace
-     */
-    struct nl_msg *nl_msg = ovpn_dco_nlmsg_create(dco, OVPN_CMD_REGISTER_PACKET);
-    if (!nl_msg)
-    {
-        msg(M_ERR, "%s: cannot allocate message to register for control packets",
-            __func__);
-    }
-
-    ret = ovpn_nl_msg_send(dco, nl_msg, NULL, __func__);
-    if (ret)
-    {
-        msg(M_ERR, "%s: failed to register for control packets: %d", __func__,
-            ret);
-    }
-    nlmsg_free(nl_msg);
 }
 
 int
@@ -473,9 +457,6 @@ open_tun_dco(struct tuntap *tt, openvpn_net_ctx_t *ctx, const char *dev)
         msg(M_FATAL, "DCO: cannot retrieve ifindex for interface %s", dev);
     }
 
-    tt->actual_name = string_alloc(dev, NULL);
-    uint8_t *dcobuf = malloc(65536);
-    buf_set_write(&tt->dco.dco_packet_in, dcobuf, 65536);
     tt->dco.dco_message_peer_id = -1;
 
     ovpn_dco_register(&tt->dco);
@@ -490,7 +471,6 @@ close_tun_dco(struct tuntap *tt, openvpn_net_ctx_t *ctx)
 
     net_iface_del(ctx, tt->actual_name);
     ovpn_dco_uninit_netlink(&tt->dco);
-    free(tt->dco.dco_packet_in.data);
 }
 
 int
@@ -821,51 +801,6 @@ ovpn_handle_msg(struct nl_msg *msg, void *arg)
             break;
         }
 
-        case OVPN_CMD_PACKET:
-        {
-            if (!attrs[OVPN_ATTR_PACKET])
-            {
-                msg(D_DCO, "ovpn-dco: no packet in OVPN_CMD_PACKET message");
-                return NL_SKIP;
-            }
-            struct nlattr *pkt_attrs[OVPN_PACKET_ATTR_MAX + 1];
-
-            if (nla_parse_nested(pkt_attrs, OVPN_PACKET_ATTR_MAX,
-                                 attrs[OVPN_ATTR_PACKET], NULL))
-            {
-                msg(D_DCO, "received bogus cmd packet data from ovpn-dco");
-                return NL_SKIP;
-            }
-            if (!pkt_attrs[OVPN_PACKET_ATTR_PEER_ID])
-            {
-                msg(D_DCO, "ovpn-dco: Received OVPN_CMD_PACKET message without peer id");
-                return NL_SKIP;
-            }
-            if (!pkt_attrs[OVPN_PACKET_ATTR_PACKET])
-            {
-                msg(D_DCO, "ovpn-dco: Received OVPN_CMD_PACKET message without packet");
-                return NL_SKIP;
-            }
-
-            unsigned int peerid = nla_get_u32(pkt_attrs[OVPN_PACKET_ATTR_PEER_ID]);
-
-            uint8_t *data = nla_data(pkt_attrs[OVPN_PACKET_ATTR_PACKET]);
-            int len = nla_len(pkt_attrs[OVPN_PACKET_ATTR_PACKET]);
-
-            msg(D_DCO_DEBUG, "ovpn-dco: received OVPN_PACKET_ATTR_PACKET, ifindex: %d peer-id: %d, len %d",
-                ifindex, peerid, len);
-            if (BLEN(&dco->dco_packet_in) > 0)
-            {
-                msg(D_DCO, "DCO packet buffer still full?!");
-                return NL_SKIP;
-            }
-            buf_init(&dco->dco_packet_in, 0);
-            buf_write(&dco->dco_packet_in, data, len);
-            dco->dco_message_peer_id = peerid;
-            dco->dco_message_type = OVPN_CMD_PACKET;
-            break;
-        }
-
         default:
             msg(D_DCO, "ovpn-dco: received unknown command: %d", gnlh->cmd);
             dco->dco_message_type = 0;
@@ -882,41 +817,6 @@ dco_do_read(dco_context_t *dco)
     nl_cb_set(dco->nl_cb, NL_CB_VALID, NL_CB_CUSTOM, ovpn_handle_msg, dco);
 
     return ovpn_nl_recvmsgs(dco, __func__);
-}
-
-int
-dco_do_write(dco_context_t *dco, int peer_id, struct buffer *buf)
-{
-    packet_size_type len = BLEN(buf);
-    dmsg(D_STREAM_DEBUG, "DCO: WRITE %d offset=%d", (int)len, buf->offset);
-
-    msg(D_DCO_DEBUG, "%s: peer-id %d, len=%d", __func__, peer_id, len);
-
-    struct nl_msg *nl_msg = ovpn_dco_nlmsg_create(dco, OVPN_CMD_PACKET);
-
-    if (!nl_msg)
-    {
-        return -ENOMEM;
-    }
-
-    struct nlattr *attr = nla_nest_start(nl_msg, OVPN_ATTR_PACKET);
-    int ret = -EMSGSIZE;
-    NLA_PUT_U32(nl_msg, OVPN_PACKET_ATTR_PEER_ID, peer_id);
-    NLA_PUT(nl_msg, OVPN_PACKET_ATTR_PACKET, len, BSTR(buf));
-    nla_nest_end(nl_msg, attr);
-
-    ret = ovpn_nl_msg_send(dco, nl_msg, NULL, __func__);
-    if (ret)
-    {
-        goto nla_put_failure;
-    }
-
-    /* return the length of the written data in case of success */
-    ret = len;
-
-nla_put_failure:
-    nlmsg_free(nl_msg);
-    return ret;
 }
 
 int
@@ -942,7 +842,34 @@ dco_available(int msglevel)
             "Note: Kernel support for ovpn-dco missing, disabling data channel offload.");
         return false;
     }
+
     return true;
+}
+
+const char *
+dco_version_string(struct gc_arena *gc)
+{
+    struct buffer out = alloc_buf_gc(256, gc);
+    FILE *fp = fopen("/sys/module/ovpn_dco_v2/version", "r");
+    if (!fp)
+    {
+        return "N/A";
+    }
+
+    if (!fgets(BSTR(&out), BCAP(&out), fp))
+    {
+        return "ERR";
+    }
+
+    /* remove potential newline at the end of the string */
+    char *str = BSTR(&out);
+    char *nl = strchr(str, '\n');
+    if (nl)
+    {
+        *nl = '\0';
+    }
+
+    return BSTR(&out);
 }
 
 void
