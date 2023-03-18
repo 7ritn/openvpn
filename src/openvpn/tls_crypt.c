@@ -451,15 +451,15 @@ tls_crypt_v2_plugin_wrap_client_key(struct buffer *wkc, const struct key2 *src_k
 {
     bool ret = false;
     int data_len = TLS_CRYPT_V2_CLIENT_KEY_LEN + BLEN(src_metadata);
-    char data[data_len];
-    memcpy(data, (uint8_t *) src_key->keys, TLS_CRYPT_V2_CLIENT_KEY_LEN);
-    memcpy(data + TLS_CRYPT_V2_CLIENT_KEY_LEN, BPTR(src_metadata), BLEN(src_metadata));
+    uint8_t plaintext_data[TLS_CRYPT_V2_MAX_WKC_LEN];
+    memcpy(plaintext_data, (uint8_t *) src_key->keys, TLS_CRYPT_V2_CLIENT_KEY_LEN);
+    memcpy(plaintext_data + TLS_CRYPT_V2_CLIENT_KEY_LEN, BPTR(src_metadata), BLEN(src_metadata));
 
     /* Prepare unwrapped key for plugin */
     struct argv av = argv_new();
-    char *b64_key = NULL;
-    ASSERT(openvpn_base64_encode(data, data_len, &b64_key) >= 0);
-    ASSERT(argv_printf(&av, "%s %s", "wrap", b64_key) == true);
+    char *plaintext_b64 = NULL;
+    ASSERT(openvpn_base64_encode(plaintext_data, data_len, &plaintext_b64) >= 0);
+    ASSERT(argv_printf(&av, "%s %s", "wrap", plaintext_b64) == true);
 
     /* Prepare response structure */
     struct plugin_return pr;
@@ -468,7 +468,7 @@ tls_crypt_v2_plugin_wrap_client_key(struct buffer *wkc, const struct key2 *src_k
     /* Call the plugin */
     int plug_ret = plugin_call(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING, &av, &pr, es);
     ASSERT(plug_ret == OPENVPN_PLUGIN_FUNC_SUCCESS);
-    free(b64_key);
+    free(plaintext_b64);
 
     /* Handle return */
     struct plugin_return wrapped_return;
