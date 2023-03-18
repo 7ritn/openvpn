@@ -27,6 +27,10 @@
 #include "config-msvc.h"
 #endif
 
+#ifdef DISABLE_PLUGIN
+#undef ENABLE_PLUGIN
+#endif
+
 #include "syshead.h"
 
 #include "argv.h"
@@ -440,6 +444,7 @@ tls_crypt_v2_wrap_client_key(struct buffer *wkc,
     return buf_copy(wkc, &work);
 }
 
+#ifdef ENABLE_PLUGIN
 static bool
 tls_crypt_v2_plugin_wrap_client_key(struct buffer *wkc, const struct key2 *src_key, const struct buffer *src_metadata,
                                     const struct plugin_list *plugins, struct env_set *es, struct gc_arena *gc)
@@ -450,22 +455,22 @@ tls_crypt_v2_plugin_wrap_client_key(struct buffer *wkc, const struct key2 *src_k
     memcpy(data, (uint8_t *) src_key->keys, TLS_CRYPT_V2_CLIENT_KEY_LEN);
     memcpy(data + TLS_CRYPT_V2_CLIENT_KEY_LEN, BPTR(src_metadata), BLEN(src_metadata));
 
-    // Prepare unwrapped key for plugin
+    /* Prepare unwrapped key for plugin */
     struct argv av = argv_new();
     char *b64_key = NULL;
     ASSERT(openvpn_base64_encode(data, data_len, &b64_key) >= 0);
     ASSERT(argv_printf(&av, "%s %s", "wrap", b64_key) == true);
 
-    // Prepare response structure
+    /* Prepare response structure */
     struct plugin_return pr;
     plugin_return_init(&pr);
 
-    // Call the plugin
+    /* Call the plugin */
     int plug_ret = plugin_call(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING, &av, &pr, es);
     ASSERT(plug_ret == OPENVPN_PLUGIN_FUNC_SUCCESS);
     free(b64_key);
 
-    // Handle return
+    /* Handle return */
     struct plugin_return wrapped_return;
     plugin_return_get_column(&pr, &wrapped_return, "wrapping result");
     ASSERT(plugin_return_defined(&wrapped_return));
@@ -509,25 +514,25 @@ tls_crypt_v2_plugin_unwrap_client_key(struct key2 *client_key, struct buffer *me
         CRYPT_ERROR("wrapped client key too big");
     }
 
-    // Prepare unwrapped key for plugin
+    /* Prepare unwrapped key for plugin */
     struct argv av = argv_new();
     char *b64_key;
     ASSERT(openvpn_base64_encode(BPTR(&wrapped_client_key), BLEN(&wrapped_client_key), &b64_key) >= 0);
     ASSERT(argv_printf(&av, "%s %s", "unwrap", b64_key) == true);
     free(b64_key);
 
-    // Prepare response structure
+    /* Prepare response structure */
     struct plugin_return pr;
     plugin_return_init(&pr);
 
-    // Call the plugin
+    /* Call the plugin */
     int plug_ret = plugin_call(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING, &av, &pr, es);
     if (plug_ret != OPENVPN_PLUGIN_FUNC_SUCCESS)
     {
         CRYPT_ERROR("unwrap client key plugin failed");
     }
 
-    // Handle return
+    /* Handle return */
     struct plugin_return unwrapped_return;
     plugin_return_get_column(&pr, &unwrapped_return, "wrapping result");
     if (!plugin_return_defined(&unwrapped_return))
@@ -567,6 +572,7 @@ error_exit:
     argv_free(&av);
     return ret;
 }
+#endif /* ifdef ENABLE_PLUGIN */
 
 static bool
 tls_crypt_v2_local_unwrap_client_key(struct key2 *client_key, struct buffer *metadata,
@@ -682,12 +688,14 @@ tls_crypt_v2_unwrap_client_key(struct key2 *client_key, struct buffer *metadata,
                                struct buffer wrapped_client_key, struct key_ctx *server_key,
                                const struct plugin_list *plugins, struct env_set *es)
 {
+#ifdef ENABLE_PLUGIN
     if (plugin_defined(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING) & !server_key->cipher)
     {
         return tls_crypt_v2_plugin_unwrap_client_key(client_key, metadata, wrapped_client_key, plugins, es);
 
     }
     else
+#endif
     {
         return tls_crypt_v2_local_unwrap_client_key(client_key, metadata, wrapped_client_key, server_key);
     }
@@ -821,6 +829,7 @@ tls_crypt_v2_write_server_key_file(const char *filename)
     write_pem_key_file(filename, tls_crypt_v2_srv_pem_name);
 }
 
+#ifdef ENABLE_PLUGIN
 void
 tls_crypt_v2_send_plugin_server_key(const char *filename, const struct plugin_list *plugins, struct env_set *es)
 {
@@ -845,7 +854,7 @@ tls_crypt_v2_send_plugin_server_key(const char *filename, const struct plugin_li
 
         buf_set_read(&server_key_buf, (void *)&server_key, sizeof(server_key));
         ASSERT(crypto_pem_encode(tls_crypt_v2_srv_pem_name, &server_key_pem,
-                               &server_key_buf, &gc));
+                                 &server_key_buf, &gc));
 
         ASSERT(buffer_write_file(filename, &server_key_pem));
     }
@@ -854,7 +863,7 @@ tls_crypt_v2_send_plugin_server_key(const char *filename, const struct plugin_li
     secure_memzero(b64_hmac_key, strlen(b64_hmac_key));
     free(b64_hmac_key);
 
-    // Securely erase argv
+    /* Securely erase argv */
     if (av.argc)
     {
         for (size_t i = 0; i < av.argc; ++i)
@@ -864,6 +873,7 @@ tls_crypt_v2_send_plugin_server_key(const char *filename, const struct plugin_li
     }
     argv_free(&av);
 }
+#endif /* ifdef ENABLE_PLUGIN */
 
 void
 tls_crypt_v2_write_client_key_file(const char *filename, const char *b64_metadata,
@@ -913,10 +923,13 @@ tls_crypt_v2_write_client_key_file(const char *filename, const char *b64_metadat
         ASSERT(buf_write(&metadata, &TLS_CRYPT_METADATA_TYPE_TIMESTAMP, 1));
         ASSERT(buf_write(&metadata, &timestamp, sizeof(timestamp)));
     }
-    if (plugin_defined(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING) && !server_key_file) {
+#ifdef ENABLE_PLUGIN
+    if (plugin_defined(plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING) && !server_key_file)
+    {
         tls_crypt_v2_plugin_wrap_client_key(&dst, &client_key, &metadata, plugins, es, NULL);
-    } 
+    }
     else
+#endif
     {
         tls_crypt_v2_init_server_key(&server_key, true, server_key_file,
                                      server_key_inline);
@@ -969,7 +982,7 @@ tls_crypt_v2_write_client_key_file(const char *filename, const char *b64_metadat
     {
         free_key_ctx(&server_key);
         tls_crypt_v2_init_server_key(&server_key, false, server_key_file,
-                                    server_key_inline);
+                                     server_key_inline);
     }
     ASSERT(tls_crypt_v2_unwrap_client_key(&test_client_key2, &test_metadata,
                                           test_wrapped_client_key, &server_key, plugins, es));

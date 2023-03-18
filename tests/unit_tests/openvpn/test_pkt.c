@@ -233,21 +233,21 @@ test_tls_decrypt_lite_crypt(void **ut_state)
 
     /* tls-auth should be invalid */
     buf_write(&buf, client_reset_v2_tls_auth, sizeof(client_reset_v2_tls_auth));
-    enum first_packet_verdict verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    enum first_packet_verdict verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_INVALID);
     free_tls_pre_decrypt_state(&state);
 
     /* as well as the too short normal reset */
     buf_reset_len(&buf);
     buf_write(&buf, client_reset_v2_none, sizeof(client_reset_v2_none));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_INVALID);
     free_tls_pre_decrypt_state(&state);
 
     /* the tls-crypt should validate */
     buf_reset_len(&buf);
     buf_write(&buf, client_reset_v2_tls_crypt, sizeof(client_reset_v2_tls_crypt));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_RESET_V2);
     free_tls_pre_decrypt_state(&state);
 
@@ -257,7 +257,7 @@ test_tls_decrypt_lite_crypt(void **ut_state)
         buf_reset_len(&buf);
         buf_write(&buf, client_reset_v2_tls_crypt, sizeof(client_reset_v2_tls_crypt));
         BPTR(&buf)[i] = 0x23;
-        verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+        verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
         assert_int_equal(verdict, VERDICT_INVALID);
         free_tls_pre_decrypt_state(&state);
     }
@@ -281,21 +281,21 @@ test_tls_decrypt_lite_auth(void **ut_state)
     /* Packet to short to contain the hmac */
     buf_write(&buf, client_reset_v2_none, sizeof(client_reset_v2_none));
 
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_INVALID);
     free_tls_pre_decrypt_state(&state);
 
     /* Valid tls-auth packet, should validate */
     buf_reset_len(&buf);
     buf_write(&buf, client_reset_v2_tls_auth, sizeof(client_reset_v2_tls_auth));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_RESET_V2);
     free_tls_pre_decrypt_state(&state);
 
     free_tls_pre_decrypt_state(&state);
     /* The pre decrypt function should not modify the buffer, so calling it
      * again should have the same result */
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_RESET_V2);
     free_tls_pre_decrypt_state(&state);
 
@@ -305,13 +305,13 @@ test_tls_decrypt_lite_auth(void **ut_state)
 
     buf_reset_len(&buf);
     buf_write(&buf, client_ack_tls_auth_randomid, sizeof(client_ack_tls_auth_randomid));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_CONTROL_V1);
     free_tls_pre_decrypt_state(&state);
 
     /* flip a byte in the hmac */
     BPTR(&buf)[20] = 0x23;
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_INVALID);
     free_tls_pre_decrypt_state(&state);
 
@@ -322,7 +322,7 @@ test_tls_decrypt_lite_auth(void **ut_state)
 
     buf_reset_len(&buf);
     buf_write(&buf, client_reset_v2_tls_auth, sizeof(client_reset_v2_tls_auth));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_INVALID);
 
     free_tls_pre_decrypt_state(&state);
@@ -344,20 +344,20 @@ test_tls_decrypt_lite_none(void **ut_state)
 
     /* the method will not do additional test, so the tls-auth and tls-crypt
      * reset will be accepted */
-    enum first_packet_verdict verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    enum first_packet_verdict verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_RESET_V2);
     free_tls_pre_decrypt_state(&state);
 
     buf_reset_len(&buf);
     buf_write(&buf, client_reset_v2_none, sizeof(client_reset_v2_none));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_RESET_V2);
     free_tls_pre_decrypt_state(&state);
 
     free_tls_pre_decrypt_state(&state);
     buf_reset_len(&buf);
     buf_write(&buf, client_reset_v2_tls_crypt, sizeof(client_reset_v2_none));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_RESET_V2);
     free_tls_pre_decrypt_state(&state);
 
@@ -366,7 +366,7 @@ test_tls_decrypt_lite_none(void **ut_state)
     /* This is not a reset packet and should trigger the other response */
     buf_reset_len(&buf);
     buf_write(&buf, client_ack_tls_auth_randomid, sizeof(client_ack_tls_auth_randomid));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_CONTROL_V1);
 
     free_tls_pre_decrypt_state(&state);
@@ -435,7 +435,7 @@ test_verify_hmac_tls_auth(void **ut_state)
 
     buf_reset_len(&buf);
     buf_write(&buf, client_ack_tls_auth_randomid, sizeof(client_ack_tls_auth_randomid));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_CONTROL_V1);
 
     /* This is a valid packet but containing a random id instead of an HMAC id*/
@@ -468,7 +468,7 @@ test_verify_hmac_none(void **ut_state)
 
     buf_reset_len(&buf);
     buf_write(&buf, client_ack_none_random_id, sizeof(client_ack_none_random_id));
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_ACK_V1);
 
     bool valid = check_session_id_hmac(&state, &from.dest, hmac, 30);
@@ -569,7 +569,7 @@ test_generate_reset_packet_plain(void **ut_state)
     struct buffer buf = tls_reset_standalone(&tas.tls_wrap, &tas, &client_id, &server_id, header, false);
 
 
-    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf);
+    verdict = tls_pre_decrypt_lite(&tas, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_RESET_V2);
 
     /* Assure repeated generation of reset is deterministic/stateless*/
@@ -603,7 +603,7 @@ test_generate_reset_packet_tls_auth(void **ut_state)
     reset_packet_id_send(&tas_client.tls_wrap.opt.packet_id.send);
     struct buffer buf = tls_reset_standalone(&tas_client.tls_wrap, &tas_client, &client_id, &server_id, header, false);
 
-    enum first_packet_verdict verdict = tls_pre_decrypt_lite(&tas_server, &state, &from, &buf);
+    enum first_packet_verdict verdict = tls_pre_decrypt_lite(&tas_server, &state, &from, &buf, NULL);
     assert_int_equal(verdict, VERDICT_VALID_RESET_V2);
 
     assert_memory_equal(state.peer_session_id.id, client_id.id, SID_SIZE);

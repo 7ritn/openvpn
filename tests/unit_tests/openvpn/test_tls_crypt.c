@@ -498,7 +498,7 @@ tls_crypt_v2_wrap_unwrap_no_metadata(void **state)
     assert_true(tls_crypt_v2_unwrap_client_key(&unwrapped_client_key2,
                                                &unwrap_metadata,
                                                wrapped_client_key,
-                                               &ctx->server_keys.decrypt));
+                                               &ctx->server_keys.decrypt, NULL, NULL));
 
     assert_true(0 == memcmp(ctx->client_key2.keys, unwrapped_client_key2.keys,
                             sizeof(ctx->client_key2.keys)));
@@ -527,8 +527,7 @@ tls_crypt_v2_wrap_unwrap_max_metadata(void **state)
     struct key2 unwrapped_client_key2 = { 0 };
     assert_true(tls_crypt_v2_unwrap_client_key(&unwrapped_client_key2,
                                                &unwrap_metadata, ctx->wkc,
-                                               &ctx->server_keys.decrypt));
-
+                                               &ctx->server_keys.decrypt, NULL, NULL));
     assert_true(0 == memcmp(ctx->client_key2.keys, unwrapped_client_key2.keys,
                             sizeof(ctx->client_key2.keys)));
     assert_true(buf_equal(&ctx->metadata, &unwrap_metadata));
@@ -537,7 +536,8 @@ tls_crypt_v2_wrap_unwrap_max_metadata(void **state)
         .mode = TLS_WRAP_CRYPT,
         .tls_crypt_v2_server_key = ctx->server_keys.encrypt,
     };
-    assert_true(tls_crypt_v2_extract_client_key(&ctx->wkc, &wrap_ctx, NULL));
+    struct tls_options dummy = { 0 };
+    assert_true(tls_crypt_v2_extract_client_key(&ctx->wkc, &wrap_ctx, &dummy));
     tls_wrap_free(&wrap_ctx);
 }
 
@@ -586,7 +586,7 @@ tls_crypt_v2_wrap_unwrap_wrong_key(void **state)
     assert_false(tls_crypt_v2_unwrap_client_key(&unwrapped_client_key2,
                                                 &ctx->unwrapped_metadata,
                                                 ctx->wkc,
-                                                &ctx->server_keys.decrypt));
+                                                &ctx->server_keys.decrypt, NULL, NULL));
 
     const struct key2 zero = { 0 };
     assert_true(0 == memcmp(&unwrapped_client_key2, &zero, sizeof(zero)));
@@ -616,7 +616,7 @@ tls_crypt_v2_wrap_unwrap_dst_too_small(void **state)
         alloc_buf_gc(TLS_CRYPT_V2_MAX_METADATA_LEN-1, &ctx->gc);
     assert_false(tls_crypt_v2_unwrap_client_key(&unwrapped_client_key2,
                                                 &unwrapped_metadata, ctx->wkc,
-                                                &ctx->server_keys.decrypt));
+                                                &ctx->server_keys.decrypt, NULL, NULL));
 
     const struct key2 zero = { 0 };
     assert_true(0 == memcmp(&unwrapped_client_key2, &zero, sizeof(zero)));
@@ -651,7 +651,7 @@ test_tls_crypt_v2_write_client_key_file(void **state)
     expect_string(__wrap_buffer_read_from_file, filename, filename);
     will_return(__wrap_buffer_read_from_file, test_client_key);
 
-    tls_crypt_v2_write_client_key_file(filename, NULL, test_server_key, true);
+    tls_crypt_v2_write_client_key_file(filename, NULL, test_server_key, true, NULL, NULL);
 }
 
 static void
@@ -671,7 +671,7 @@ test_tls_crypt_v2_write_client_key_file_metadata(void **state)
     will_return(__wrap_buffer_read_from_file, test_client_key_metadata);
 
     tls_crypt_v2_write_client_key_file(filename, b64metadata, test_server_key,
-                                       true);
+                                       true, NULL, NULL);
 }
 
 int

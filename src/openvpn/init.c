@@ -1094,13 +1094,15 @@ do_genkey(struct context *c)
     }
     else if (options->genkey && options->genkey_type == GENKEY_TLS_CRYPTV2_SERVER)
     {
-        if(plugin_defined(c->plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING))
+#ifdef ENABLE_PLUGIN
+        if (plugin_defined(c->plugins, OPENVPN_PLUGIN_CLIENT_KEY_WRAPPING))
         {
             msg(M_INFO, "Generating server key for plugin");
             tls_crypt_v2_send_plugin_server_key(options->genkey_filename, c->plugins, c->es);
             return true;
 
         }
+#endif
         tls_crypt_v2_write_server_key_file(options->genkey_filename);
         return true;
     }

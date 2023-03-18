@@ -79,7 +79,7 @@ packet_id_testdriver_SOURCES = test_packet_id.c mock_msg.c mock_msg.h \
 	$(openvpn_srcdir)/session_id.c
 
 pkt_testdriver_CFLAGS  = @TEST_CFLAGS@ \
-	-I$(openvpn_includedir) -I$(compat_srcdir) -I$(openvpn_srcdir)
+	-I$(openvpn_includedir) -I$(compat_srcdir) -I$(openvpn_srcdir) -DDISABLE_PLUGIN
 pkt_testdriver_LDFLAGS = @TEST_LDFLAGS@
 pkt_testdriver_SOURCES = test_pkt.c mock_msg.c mock_msg.h \
 	$(openvpn_srcdir)/argv.c \
@@ -101,7 +101,7 @@ pkt_testdriver_SOURCES = test_pkt.c mock_msg.c mock_msg.h \
 
 if !WIN32
 tls_crypt_testdriver_CFLAGS  = @TEST_CFLAGS@ \
-	-I$(openvpn_includedir) -I$(compat_srcdir) -I$(openvpn_srcdir)
+	-I$(openvpn_includedir) -I$(compat_srcdir) -I$(openvpn_srcdir) -DDISABLE_PLUGIN
 tls_crypt_testdriver_LDFLAGS = @TEST_LDFLAGS@ \
 	-Wl,--wrap=buffer_read_from_file \
 	-Wl,--wrap=buffer_write_file \
