@@ -553,6 +553,7 @@ tls_crypt_v2_plugin_unwrap_client_key(struct key2 *client_key, struct buffer *me
                 CRYPT_ERROR("failed to read client key");
             }
             memcpy(&client_key->keys, plaintext_data, expected_key_len);
+            client_key->n = 2;
             if (!buf_write(metadata, plaintext_data + expected_key_len, unwrapped_len - expected_key_len))
             {
                 CRYPT_ERROR("metadata too large for supplied buffer");
